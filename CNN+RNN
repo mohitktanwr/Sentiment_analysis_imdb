@@ -1,0 +1,314 @@
+from keras import layers
+from keras.datasets import imdb
+from keras import preprocessing
+from keras.models import Sequential
+from keras.layers import Flatten, Dense, Embedding, SimpleRNN, LSTM, GRU, Bidirectional
+from keras import regularizers
+import matplotlib.pyplot as plt
+from keras.layers.normalization import BatchNormalization
+from keras import optimizers
+import numpy.random as nr
+import tensorflow as tf
+import numpy as np
+
+
+%matplotlib inline
+
+max_features = 10000
+max_len = 350
+
+old = np.load
+np.load = lambda *a,**k: old(*a, allow_pickle=True)
+#Pickle in Python is primarily used in serializing and 
+#deserializing a Python object structure. In other words,
+#it’s the process of converting a Python object into a byte stream to 
+#store it in a file/database, maintain program state across sessions, or
+#transport data over the network. The pickled byte stream can be used to 
+#re-create the original object hierarchy by unpickling the stream. 
+(train_text, train_labels), (test_text, test_labels) = imdb.load_data(num_words = max_features)
+np.load = old
+del(old)
+#max_len specifies number of tokens/words per train/test example
+train_text = preprocessing.sequence.pad_sequences(train_text, maxlen = max_len)
+test_text = preprocessing.sequence.pad_sequences(test_text, maxlen = max_len)
+
+print(len(train_text))
+print(train_text[1].shape)
+
+from keras import backend as K
+def sensitivity(y_true, y_pred):
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+    return true_positives / (possible_positives + K.epsilon())
+
+def specificity(y_true, y_pred):
+    true_negatives = K.sum(K.round(K.clip((1-y_true) * (1-y_pred), 0, 1)))
+    possible_negatives = K.sum(K.round(K.clip(1-y_true, 0, 1)))
+    return true_negatives / (possible_negatives + K.epsilon())
+    
+def get_f1(y_true, y_pred): #taken from old keras source code
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+    predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+    precision = true_positives / (predicted_positives + K.epsilon())
+    recall = true_positives / (possible_positives + K.epsilon())
+    f1_val = 2*(precision*recall)/(precision+recall+K.epsilon())
+    return f1_val
+    
+embedding1 = Sequential()
+## First add an embedding layer of 8 embedding layer dimensions
+embedding1.add(Embedding(10000, 8, input_length = max_len, embeddings_regularizer = regularizers.l2(0.01)))
+## Flatten the embedding of the features
+embedding1.add(Flatten())
+## Now the  binary classifier layer
+embedding1.add(Dense(1, activation = 'sigmoid'))
+embedding1.compile(optimizer = 'RMSprop', loss = 'binary_crossentropy', metrics = [sensitivity, specificity] )
+embedding1.summary()
+
+embedding3 = Sequential()
+## First add an embedding layer of 8 embedding layer dimensions
+embedding3.add(Embedding(10000, 8, input_length = max_len, embeddings_regularizer = regularizers.l2(0.01)))
+## Flatten the embedding of the features
+embedding3.add(Flatten())
+## Now the  binary classifier layer
+embedding3.add(Dense(1, activation = 'relu'))
+embedding3.compile(optimizer = 'Adam', loss = 'binary_crossentropy', metrics = [sensitivity, specificity] )
+embedding3.summary()
+
+nr.seed(3421)
+tf.random.set_seed(654)
+historyEMB = embedding1.fit(train_text, train_labels,
+                   epochs = 20,
+                   batch_size = 256,
+                   validation_data = (test_text, test_labels))
+                   
+nr.seed(3421)
+tf.random.set_seed(654)
+historyEMB3 = embedding3.fit(train_text, train_labels,
+                   epochs = 20,
+                   batch_size = 256,
+                   validation_data = (test_text, test_labels))
+                 
+def plot_loss(history):
+    '''Function to plot the loss vs. epoch'''
+    train_loss = history.history['loss']
+    test_loss = history.history['val_loss']
+    x = list(range(1, len(test_loss) + 1))
+    plt.plot(x, test_loss, color = 'red', label = 'Test loss')
+    plt.plot(x, train_loss, label = 'Training loss')
+    plt.legend()
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Loss vs. Epoch')
+    
+plot_loss(historyEMB)     
+plot_loss(historyEMB3)
+
+def plot_sensitivity(history):
+    train_acc = history.history['sensitivity']
+    test_acc = history.history['val_sensitivity']
+    x = list(range(1, len(test_acc) + 1))
+    plt.plot(x, test_acc, label = 'Test sensitivity')
+   # plt.plot(x, train_acc, label = 'Training sensitivity')
+    plt.legend()
+    plt.xlabel('Epoch')
+    plt.ylabel('sensitivity')
+    plt.title('sensitivity vs. Epoch')  
+    
+def plot_specificity(history):
+    train_acc = history.history['specificity']
+    test_acc = history.history['val_specificity']
+    x = list(range(1, len(test_acc) + 1))
+    plt.plot(x, test_acc, label = 'Test specificity')
+    plt.plot(x, train_acc, label = 'Training specificity')
+    plt.legend()
+    plt.xlabel('Epoch')
+    plt.ylabel('specificity')
+    plt.title('specificity vs. Epoch')  
+
+def plot_getf1(history):
+    train_acc = history.history['get_f1']
+    test_acc = history.history['val_get_f1']
+    x = list(range(1, len(test_acc) + 1))
+    plt.plot(x, test_acc, label = 'Test f1')
+   # plt.plot(x, train_acc, label = 'Training f1')
+    plt.legend()
+    plt.xlabel('Epoch')
+    plt.ylabel('f1 score')
+    plt.title('f1 score vs. Epoch') 
+    
+plot_sensitivity(historyEMB)
+plot_sensitivity(historyEMB3)
+
+plot_specificity(historyEMB)
+plot_specificity(historyEMB3)
+
+GRU1 = Sequential()
+## First add an embedding layer
+GRU1.add(Embedding(max_features, 32, embeddings_regularizer = regularizers.l2(0.01)))
+## Now add an RNN layer
+GRU1.add(GRU(32, kernel_regularizer = regularizers.l2(0.01)))
+## And the classifier layer
+GRU1.add(Dense(1, activation = 'sigmoid'))
+GRU1.compile(optimizer = 'RMSprop', loss = 'binary_crossentropy', metrics = [sensitivity, specificity])
+GRU1.summary()
+
+nr.seed(9191)
+tf.random.set_seed(4545)
+historyGRU1 = GRU1.fit(train_text, train_labels,
+                   epochs = 10,
+                   batch_size = 1024,
+                   validation_data = (test_text, test_labels))
+                   
+plot_loss(historyGRU1) 
+plot_specificity(historyGRU1) 
+plot_sensitivity(historyGRU1) 
+
+from keras.layers import Dropout
+GRU2 = Sequential()
+## First add an embedding layer
+GRU2.add(Embedding(max_features, 32, embeddings_regularizer = regularizers.l2(0.01)))
+## Now add an RNN layer
+GRU2.add(GRU(32, dropout=0.5, recurrent_dropout=0.1))
+#GRU2.add(Dropout(0.5))
+## And the classifier layer
+GRU2.add(Dense(1, activation = 'sigmoid'))
+GRU2.compile(optimizer = 'RMSprop', loss = 'binary_crossentropy', metrics = [sensitivity, specificity])
+GRU2.summary()
+
+nr.seed(7676)
+tf.random.set_seed(4321)
+historyGRU2 = GRU2.fit(train_text, train_labels,
+                   epochs = 10,
+                   batch_size = 1024,
+                   validation_data = (test_text, test_labels))
+                   
+plot_loss(historyGRU2) 
+plot_specificity(historyGRU2)  
+
+from keras.layers import Dropout
+from keras.layers import Bidirectional
+BI_DIR = Sequential()
+## First add an embedding layer
+BI_DIR.add(Embedding(max_features, 32, embeddings_regularizer = regularizers.l2(0.01)))
+## Now add an RNN layer
+BI_DIR.add(Bidirectional(GRU(32, dropout=0.3, recurrent_dropout=0.02)))
+#BI_DIR.add(Dropout(0.3))
+## And the classifier layer
+BI_DIR.add(Dense(1, activation = 'sigmoid'))
+BI_DIR.compile(optimizer = 'RMSprop', loss = 'binary_crossentropy', metrics = [sensitivity, specificity])
+BI_DIR.summary()
+
+nr.seed(8383)
+tf.random.set_seed(678)
+historyBI_DIR = BI_DIR.fit(train_text, train_labels,
+                   epochs = 10,
+                   batch_size = 1024,
+                   validation_data = (test_text, test_labels))
+
+plot_loss(historyBI_DIR)
+plot_specificity(historyBI_DIR)
+
+import tensorflow
+from tensorflow.keras.datasets import imdb
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.layers import Flatten
+from tensorflow.keras.layers import Conv1D
+from tensorflow.keras.layers import MaxPooling1D
+from tensorflow.keras.layers import Embedding
+from tensorflow.keras.preprocessing import sequence
+
+
+model = Sequential()
+model.add(Embedding(max_features, 32, input_length = max_len, embeddings_regularizer = regularizers.l2(0.01)))
+model.add(Conv1D(32, 3, padding='same', activation='relu'))
+model.add(MaxPooling1D())
+
+model.add(MaxPooling1D())
+model.add(Flatten())
+
+model.add(Dense(32, activation='relu'))
+model.add(Dropout(0.4))
+model.add(Dense(1, activation='sigmoid'))
+model.compile(loss='binary_crossentropy', optimizer='adam', metrics=[get_f1])
+model.summary()
+
+nr.seed(6754)
+tf.random.set_seed(7766)
+historyCNN = model.fit(train_text, train_labels,
+                   epochs = 5,
+                   batch_size = 256,
+                   validation_data = (test_text, test_labels))
+plot_getf1(historyCNN)
+
+#CNN+LSTM
+model = Sequential()
+model.add(Embedding(max_features, 32, input_length = max_len, embeddings_regularizer = regularizers.l2(0.01)))
+model.add(Conv1D(filters=32, kernel_size=3, padding='same', activation='relu'))
+model.add(MaxPooling1D(pool_size=2))
+
+model.add(LSTM(100, dropout=0.5))
+model.add(Dropout(.5))
+model.add(Dense(32, activation = 'relu'))
+
+model.add(Dropout(.5))
+model.add(Dense(1, activation='sigmoid'))
+model.compile(loss='binary_crossentropy', optimizer='adam', metrics=[get_f1])
+print(model.summary())
+
+nr.seed(6754)
+tf.random.set_seed(7766)
+historyCNN_LSTM = model.fit(train_text, train_labels,
+                   epochs = 10,
+                   batch_size = 256,
+                   validation_data = (test_text, test_labels))
+plot_getf1(historyCNN_LSTM)
+
+from keras.layers import Dropout
+from keras.layers import Bidirectional
+BI_DIR = Sequential()
+## First add an embedding layer
+BI_DIR.add(Embedding(max_features, 32, embeddings_regularizer = regularizers.l2(0.1)))
+## Now add an RNN layer
+BI_DIR.add(Bidirectional(GRU(32, dropout=0.3, recurrent_dropout=0.02)))
+#BI_DIR.add(Dropout(0.3))
+## And the classifier layer
+BI_DIR.add(Dense(1, activation = 'sigmoid'))
+BI_DIR.compile(optimizer = 'adam', loss = 'binary_crossentropy', metrics = [get_f1])
+BI_DIR.summary()
+
+nr.seed(6754)
+tf.random.set_seed(7766)
+historyBI_DI = model.fit(train_text, train_labels,
+                   epochs = 10,
+                   batch_size = 256,
+                   validation_data = (test_text, test_labels))
+plot_getf1(historyBI_DI)
+
+#CNN+BIDI
+model = Sequential()
+model.add(Embedding(max_features, 32, input_length = max_len, embeddings_regularizer = regularizers.l2(0.01)))
+model.add(Conv1D(filters=32, kernel_size=3, padding='same', activation='relu'))
+model.add(MaxPooling1D(pool_size=2))
+
+model.add(Bidirectional(GRU(32, dropout=0.3, recurrent_dropout=0.02)))
+
+#model.add(Dropout(.5))
+model.add(Dense(32, activation = 'relu'))
+
+model.add(Dropout(.5))
+model.add(Dense(1, activation='sigmoid'))
+model.compile(loss='binary_crossentropy', optimizer='adam', metrics=[get_f1])
+print(model.summary())
+
+print(model.summary())
+
+nr.seed(6754)
+tf.random.set_seed(7766)
+historyBI_DI_CNN = model.fit(train_text, train_labels,
+                   epochs = 10,
+                   batch_size = 256,
+                   validation_data = (test_text, test_labels))
+plot_getf1(historyBI_DI_CNN)
+
